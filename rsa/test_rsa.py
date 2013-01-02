@@ -1,3 +1,4 @@
+import mock
 import random
 import unittest
 
@@ -139,9 +140,33 @@ class test_rsa_isprime(unittest.TestCase):
        Carmichaels we need to test a number not relatively prime to n. Thus, to
        test Rabin and Miller's repeated squaring extension, we need to choose
        few enough a (for small numbers) that we don't pass the test due to the
-       luck of choosing a relatively composite to n. Hence the seed value and
-       N override in this test."""
-    random.seed(5)
-    for i in (561, 62745, 162401, 314821, 1024651, 31691713801, 384486837505,
-              989017417441):
-      self.assertFalse(rsa.isprime(i, 5))
+       luck of choosing a relatively composite to n. Thus, we mock out random's
+       sample to ensure no factors of n are tried as values as a."""
+    numbers = dict(((561, (3, 11, 17)),
+                    (62745, (3, 5, 47, 89)),
+                    (162401, (17, 41, 233)),
+                    (314821, (13, 61, 397)),
+                    (1024651, (19, 199, 271)),
+                    (31691713801, (11, 47, 1033, 59341)),
+                    (384486837505, (5, 67, 113, 463, 21937)),
+                    (989017417441, (139, 691, 829, 12421))))
+
+    def pessimal_sample_gen(bad_choices):
+      """Note -- not a general solution; badle behaved when count greater than
+         number of distinct items or duplicates are desired. Works perfectly
+         here though. Las Vegas performance."""
+      unpatched_sample = random.sample
+      def sampler(items, count):
+        gulp = min(len(items), 2 * count)
+        sample = set(unpatched_sample(items, gulp)).difference(bad_choices)
+        while len(sample) < count:
+          sample.update(unpatched_sample(items, gulp))
+          sample.difference_update(bad_choices)
+        return unpatched_sample(sample, count)
+      return sampler
+
+    for n, factors in numbers.iteritems():
+      sampler = pessimal_sample_gen(factors)
+      with mock.patch("random.sample") as mocked_sample:
+        mocked_sample.side_effect=sampler
+        self.assertFalse(rsa.isprime(n))
