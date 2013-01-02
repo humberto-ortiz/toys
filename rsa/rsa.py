@@ -20,6 +20,8 @@ import math
 import random
 
 PRIMALITY_ITERATIONS = 100
+DEFAULT_RSA_KEY_LENGTH = 512
+ENCRYPTION_EXPONENT = 3
 
 def _extended_euclidean(a, b):
   """Helper function that runs the extended Euclidean algorithm, which
@@ -46,6 +48,9 @@ def gcd(a, b):
 
 def modmul(x, y, n):
   """Computes x * y mod n"""
+  # Although elegant algorithmically, the n^2 iterative procedure given below
+  # is no match for Python's built in library, which likely uses the FFT nlogn.
+  return (x * y) % n
   total = 0
   while y > 0:
     if y % 2 == 1:
@@ -110,8 +115,89 @@ def isprime(x, N=PRIMALITY_ITERATIONS):
       val = new_val
     return val == 1
     
-  for a in random.sample(xrange(1, x), min(x - 1, N)):
+  for i in range(N):
+    a = random.randint(1, x - 1)
     if not prime_test_one_base(a, t, u, x):
       return False
   else:
     return True
+
+def get_prime(nbits):
+  """Gets a prime that is n bits in length. Requires nbits > 2."""
+  assert nbits > 2
+  number = 4
+  while not isprime(number):
+    number = random.randint(2 ** (nbits - 1), 2 ** nbits - 1)
+  return number
+
+class Message(object):
+  """Represents a message that can be [de]encoded through a key. This class is
+     used to manage the dual forms of bytestring and number sequence."""
+  def __init__(self, numbers, length, base):
+    self.numbers = numbers
+    self.length = length
+    self.base = base
+
+  @classmethod
+  def FromBytes(klass, data, base):
+    """Converts the data to a byte sequence in multiples of 8 (could be more
+       efficient but code complexity not worth it)."""
+    bytes_per_item = base / 8
+    assert bytes_per_item >= 1
+    num_items = int(math.ceil(float(len(data)) / bytes_per_item))
+    items = []
+    for i in range(num_items):
+      num = 0
+      for byte in data[i * bytes_per_item:(i + 1) * bytes_per_item]:
+        num = ((num << 8) + ord(byte))
+      if (i + 1) * bytes_per_item > len(data):
+        num <<= 8 * ((i + 1) * bytes_per_item - len(data))
+      items.append(num)
+    return Message(items, len(data), base)
+
+  def AsBytes(self):
+    """Converts the message contents to bytes.
+       than 2 ** base, where base is >= 8."""
+    bytes_per_item = self.base / 8
+    assert bytes_per_item >= 1
+    my_data = []
+    for item in self.numbers:
+      for i in reversed(xrange(bytes_per_item)):
+        my_data.append(chr((((0xFF << (i * 8)) & item) >> (i * 8))))
+    return ''.join(my_data[:self.length])
+
+  def Mapped(self, fxn):
+    """Returns a new message that is the result of the old with numbers
+       transformed by fxn."""
+    return Message(map(fxn, self.numbers), self.length, self.base)
+
+class RSAPrivateKey(object):
+  """Represents an RSA private key."""
+  def __init__(self, nbits=DEFAULT_RSA_KEY_LENGTH):
+    p = get_prime(nbits)
+    q = get_prime(nbits)
+    self.e = ENCRYPTION_EXPONENT
+    self.d = modinv(self.e, (p - 1) * (q - 1))
+    self.N = p * q
+    self.public = RSAPublicKey(self.N, self.e)
+
+  def GetPublicKey(self):
+    """Returns the private key's corresponding public key."""
+    return self.public
+
+  def Decrypt(self, message):
+    """Decrypts a Message."""
+    print message.numbers
+    assert all((0 <= n < self.N for n in message.numbers))
+    return message.Mapped(lambda n: modexp(n, self.d, self.N))
+
+class RSAPublicKey(object):
+  """Represents an RSA public key."""
+  def __init__(self, N, e):
+    self.N = N
+    self.e = e
+
+  def Encrypt(self, message):
+    """Encrypts a message to the RSA key specified."""
+    assert all((0 <= n < self.N for n in message.numbers))
+    return message.Mapped(lambda n: modexp(n, self.e, self.N))

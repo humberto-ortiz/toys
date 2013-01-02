@@ -33,3 +33,9 @@ nosetests.xml
 .mr.developer.cfg
 .project
 .pydevproject
+
+# VIM
+.*.sw*
+
+# C objects
+*.o
