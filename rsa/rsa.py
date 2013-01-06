@@ -6,8 +6,8 @@
 #
 # This is a toy proof of concept for fun. Please do not use for any actual
 # encryption, there are a number of practical considerations relating to quality
-# of the RNG, hardware security, armoring, etc and no effort is made to address
-# these.
+# of the RNG, hardware security, armoring (padding), etc and no effort is made
+# to address these.
 #
 # Some examples:
 # * http://rdist.root.org/2009/10/06/why-rsa-encryption-padding-is-critical/
@@ -22,6 +22,7 @@ import random
 PRIMALITY_ITERATIONS = 100
 DEFAULT_RSA_KEY_LENGTH = 512
 ENCRYPTION_EXPONENT = 3
+NATIVE_MATH_MAX = 1 << 64
 
 def _extended_euclidean(a, b):
   """Helper function that runs the extended Euclidean algorithm, which
@@ -46,18 +47,37 @@ def gcd(a, b):
   _, _, d = _extended_euclidean(a, b)
   return d
 
-def modmul(x, y, n):
-  """Computes x * y mod n"""
-  # Although elegant algorithmically, the n^2 iterative procedure given below
-  # is no match for Python's built in library, which likely uses the FFT nlogn.
+def modmul(x, y, n, base=None):
+  # O(n^log_2(3)) algorithm
+  #
+  # (a + kc)(b + kd) = ab + k(ad + bc) + kkcd
+  # (a + c)(b + d) = ab + ad + bc + cd
+  #
+  # let ab = a * b
+  # let cd = c * d
+  # let crossover = (a + c)(b + d) - ab - cd = ad + bc
+  #
+  # (a + kc)(b + kd) = ab + k * crossover + k * k * cd
   return (x * y) % n
-  total = 0
-  while y > 0:
-    if y % 2 == 1:
-      total = (total + x) % n
-    y /= 2
-    x *= 2
-  return total
+  if x >= NATIVE_MATH_MAX or y >= NATIVE_MATH_MAX:
+    if base is None:
+      base = int(0.5 + math.log(max(x, y), 2))
+    base /= 2
+
+    base_mask = (1 << base) - 1
+    a = x & base_mask
+    c = x >> base
+
+    b = y & base_mask
+    d = y >> base
+
+    ab = modmul(a, b, n)
+    cd = modmul(c, d, n)
+    crossover = (modmul((a + c), (b + d), n) - ab - cd) % n
+
+    return (ab + (((cd << base) + crossover) << base)) % n
+  else:
+    return (x * y) % n
 
 def modinv(x, n):
   """Returns the inverse of x mod n if it exists, or None if not."""
