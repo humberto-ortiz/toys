@@ -155,7 +155,7 @@ class test_rsa_isprime(unittest.TestCase):
       """Note -- not a general solution; badle behaved when count greater than
          number of distinct items or duplicates are desired. Works perfectly
          here though. Las Vegas performance."""
-      unpatched_sample = random.sample
+      unpatched_sample = random.Random(34).sample
       def sampler(items, count):
         gulp = min(len(items), 2 * count)
         sample = set(unpatched_sample(items, gulp)).difference(bad_choices)
@@ -170,3 +170,42 @@ class test_rsa_isprime(unittest.TestCase):
       with mock.patch("random.sample") as mocked_sample:
         mocked_sample.side_effect=sampler
         self.assertFalse(rsa.isprime(n))
+
+class test_rsa_get_prime(unittest.TestCase):
+  def test_edge(self):
+    with mock.patch("random.randint") as random_mock:
+      random_mock.side_effect=random.Random(34).randint
+      primes = [rsa.get_prime(3) for _ in range(10)]
+      self.assertTrue(all((int(p) in (2, 3, 5, 7) for p in primes)))
+
+      for b in (3, 4, 5, 10, 20):
+        for i in range(3):
+          prime = rsa.get_prime(b)
+          self.assertTrue(rsa.isprime(prime))
+          self.assertTrue(prime < 2 ** b)
+
+class test_Message(unittest.TestCase):
+  def test_message(self):
+    self.assertEquals(rsa.Message([72, 69, 76, 76, 79], 5, 8).AsBytes(),
+                                  "HELLO")
+    self.assertEquals(rsa.Message([72, 69, 76, 76, 79], 0, 8).AsBytes(),
+                                  "")
+
+    self.assertEquals(rsa.Message([18501, 19532, 20224], 5, 16).AsBytes(),
+                                  "HELLO")
+
+    self.assertEquals(rsa.Message([310400273487], 5, 40).AsBytes(),
+                                  "HELLO")
+
+    self.assertEquals(rsa.Message([310400273487], 3, 40).AsBytes(),
+                                  "HEL")
+
+  def test_FromBytes(self):
+    data = "This was a triumph."
+    for base in (8, 16, 24, 32, 40):
+      self.assertEquals(rsa.Message.FromBytes(data, base).AsBytes(), data)
+
+  def test_Mapped(self):
+    msg = rsa.Message([72, 69, 76, 76, 79], 5, 8)
+    self.assertEquals(msg.Mapped(lambda x: x + 2).AsBytes(), "JGNNQ")
+

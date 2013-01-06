@@ -131,8 +131,13 @@ def get_prime(nbits):
   return number
 
 class Message(object):
-  """Represents a message that can be [de]encoded through a key. This class is
-     used to manage the dual forms of bytestring and number sequence."""
+  """Very simple class to represent a message that can be [de]encoded through
+     a key. This class is used to manage the dual forms of bytestring and number
+     sequence. Numbers is a sequence of integers, base is the power of 2 the
+     numbers are encoded modulo and must be a multiple of 8 (for simplicity).
+     Caller is responsible for validity of numbers, length, and base -- numbers
+     must be a sequence of integers modulo 2 ** base, and length must be the
+     number of *bytes* to decode."""
   def __init__(self, numbers, length, base):
     self.numbers = numbers
     self.length = length
@@ -168,7 +173,8 @@ class Message(object):
 
   def Mapped(self, fxn):
     """Returns a new message that is the result of the old with numbers
-       transformed by fxn."""
+       transformed by fxn. The result is NOT checked against the base for
+       legality."""
     return Message(map(fxn, self.numbers), self.length, self.base)
 
 class RSAPrivateKey(object):
