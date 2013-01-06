@@ -21,7 +21,9 @@ import random
 
 PRIMALITY_ITERATIONS = 100
 DEFAULT_RSA_KEY_LENGTH = 512
-ENCRYPTION_EXPONENT = 3
+
+# Point at which recursive bigint routines fall back to native Python math.
+# This must be at least 4, and should ideally be the native word size.
 NATIVE_MATH_MAX = 1 << 64
 
 def _extended_euclidean(a, b):
@@ -58,12 +60,12 @@ def modmul(x, y, n, base=None):
   # let crossover = (a + c)(b + d) - ab - cd = ad + bc
   #
   # (a + kc)(b + kd) = ab + k * crossover + k * k * cd
-  return (x * y) % n
   if x >= NATIVE_MATH_MAX or y >= NATIVE_MATH_MAX:
     if base is None:
       base = int(0.5 + math.log(max(x, y), 2))
     base /= 2
 
+    # Split x and y into low and high nibbles
     base_mask = (1 << base) - 1
     a = x & base_mask
     c = x >> base
@@ -71,10 +73,12 @@ def modmul(x, y, n, base=None):
     b = y & base_mask
     d = y >> base
 
+    # Compute intermediates, which each require one multiplication.
     ab = modmul(a, b, n)
     cd = modmul(c, d, n)
     crossover = (modmul((a + c), (b + d), n) - ab - cd) % n
 
+    # Final result can be assembled with just shifts and adds.
     return (ab + (((cd << base) + crossover) << base)) % n
   else:
     return (x * y) % n
@@ -198,12 +202,27 @@ class Message(object):
     return Message(map(fxn, self.numbers), self.length, self.base)
 
 class RSAPrivateKey(object):
-  """Represents an RSA private key."""
+  """Represents an RSA private key. Requires nbits > 2."""
   def __init__(self, nbits=DEFAULT_RSA_KEY_LENGTH):
+    assert nbits > 2
     p = get_prime(nbits)
-    q = get_prime(nbits)
-    self.e = ENCRYPTION_EXPONENT
-    self.d = modinv(self.e, (p - 1) * (q - 1))
+    q = p
+    # Must halt because nbits > 2, meaning at least 2 primes are available. Thus,
+    # the expected number of iterations is 2.
+    while q == p:
+      q = get_prime(nbits)
+    
+    # We need an encryption exponent that is relatively prime to
+    # (p - 1) * (q - 1), which is true iff it has an inverse.
+    secret_modulus = (p - 1) * (q - 1)
+    self.d = None
+    self.e = 1
+
+    # The vast majority of primes - 1 are not multiples of 3, so this halts quick.
+    while self.d is None and self.d != self.e:
+      self.e += 1
+      self.d = modinv(self.e, secret_modulus)
+    
     self.N = p * q
     self.public = RSAPublicKey(self.N, self.e)
 
@@ -213,9 +232,13 @@ class RSAPrivateKey(object):
 
   def Decrypt(self, message):
     """Decrypts a Message."""
-    print message.numbers
     assert all((0 <= n < self.N for n in message.numbers))
-    return message.Mapped(lambda n: modexp(n, self.d, self.N))
+    return message.Mapped(self.DecryptInteger)
+
+  def DecryptInteger(self, number):
+    """Decrypts a single number."""
+    assert 0 <= number < self.N
+    return modexp(number, self.d, self.N)
 
 class RSAPublicKey(object):
   """Represents an RSA public key."""
@@ -226,4 +249,9 @@ class RSAPublicKey(object):
   def Encrypt(self, message):
     """Encrypts a message to the RSA key specified."""
     assert all((0 <= n < self.N for n in message.numbers))
-    return message.Mapped(lambda n: modexp(n, self.e, self.N))
+    return message.Mapped(self.EncryptInteger)
+
+  def EncryptInteger(self, number):
+    """Encrypts a single number."""
+    assert 0 <= number < self.N
+    return modexp(number, self.e, self.N)

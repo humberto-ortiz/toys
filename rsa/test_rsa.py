@@ -33,6 +33,10 @@ class test_gcd(unittest.TestCase):
     self.assertEquals(rsa.gcd(561, 253), 11)
 
 class test_modmul(unittest.TestCase):
+  def setUp(self):
+    self.native_val = rsa.NATIVE_MATH_MAX
+    rsa.NATIVE_MATH_MAX = 4
+
   def test_edge_nomod(self):
     self.assertEquals(rsa.modmul(0, 0, 100), 0)
     self.assertEquals(rsa.modmul(0, 1, 100), 0)
@@ -55,7 +59,7 @@ class test_modmul(unittest.TestCase):
 
     # 1 * -1 == -1
     self.assertEquals(rsa.modmul(1, 4, 5), 4)
-    # -1 * -1 == 1
+    # -1 * -1 == 1 (unless you're Gene Ray)
     self.assertEquals(rsa.modmul(4, 4, 5), 1)
 
   def test_stress(self):
@@ -65,6 +69,9 @@ class test_modmul(unittest.TestCase):
       y = R.randint(0, 100)
       n = R.randint(1, 100)
       self.assertEquals(rsa.modmul(x, y, n), (x * y) % n)
+
+  def tearDown(self):
+    rsa.NATIVE_MATH_MAX = self.native_val
 
 class test_rsa_modinv(unittest.TestCase):
   def test_simple(self):
@@ -208,4 +215,29 @@ class test_Message(unittest.TestCase):
   def test_Mapped(self):
     msg = rsa.Message([72, 69, 76, 76, 79], 5, 8)
     self.assertEquals(msg.Mapped(lambda x: x + 2).AsBytes(), "JGNNQ")
+
+class test_RSA(unittest.TestCase):
+  def test_creation_edge(self):
+    with mock.patch("random.randint") as random_mock:
+      random_mock.side_effect=random.Random(34).randint
+      for nbits in (3, 4, 5, 10, 20):
+        K = rsa.RSAPrivateKey(nbits)
+        k = K.GetPublicKey()
+
+        # Verify that small edge case keys can decrypt successfully all possible
+        # values.
+        for data in range(nbits):
+          self.assertEquals(K.DecryptInteger(k.EncryptInteger(data)), data)
+
+  def test_message_crypt(self):
+    with mock.patch("random.randint") as random_mock:
+      random_mock.side_effect=random.Random(34).randint
+      value = "Hello world! How are you this fine day? I'm doing just great!"
+      for nbits in (32, 72, 64, 136):
+        msg = rsa.Message.FromBytes(value, nbits)
+        print len(msg.numbers)
+        K = rsa.RSAPrivateKey(nbits)
+        k = K.GetPublicKey()
+        self.assertEquals(K.Decrypt(k.Encrypt(msg)).AsBytes(), value)
+
 
