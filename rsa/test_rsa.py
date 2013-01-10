@@ -8,7 +8,6 @@ class test__extended_euclidean(unittest.TestCase):
   def test_coprime(self):
     for a, b in [(25, 11), (9, 13), (8, 15)]:
       x, y, gcd = rsa._extended_euclidean(a, b)
-      print a, b, x, y, gcd
       self.assertEquals(a * x + b * y, gcd)
 
   def test_not_coprime(self):
@@ -192,29 +191,50 @@ class test_rsa_get_prime(unittest.TestCase):
           self.assertTrue(prime < 2 ** b)
 
 class test_Message(unittest.TestCase):
-  def test_message(self):
-    self.assertEquals(rsa.Message([72, 69, 76, 76, 79], 5, 8).AsBytes(),
-                                  "HELLO")
-    self.assertEquals(rsa.Message([72, 69, 76, 76, 79], 0, 8).AsBytes(),
-                                  "")
-
-    self.assertEquals(rsa.Message([18501, 19532, 20224], 5, 16).AsBytes(),
+  def test_message_edge(self):
+    self.assertEquals(rsa.Message([72, 69, 76, 76, 79], 8).ToBytes(),
                                   "HELLO")
 
-    self.assertEquals(rsa.Message([310400273487], 5, 40).AsBytes(),
-                                  "HELLO")
+    self.assertEquals(rsa.Message([18501, 19532, 20257], 16).ToBytes(),
+                                  "HELLO!")
 
-    self.assertEquals(rsa.Message([310400273487], 3, 40).AsBytes(),
+    self.assertEquals(rsa.Message([3, 310400273487], 40).ToBytes(True),
                                   "HEL")
+
+  def test_savelength_basic(self):
+    self.assertEquals(rsa.Message([0, 18501, 19532, 20257], 16).ToBytes(True),
+                                  "HELL")
+
+    self.assertEquals(rsa.Message([1, 18501, 19532, 20257], 16).ToBytes(True),
+                                  "HELLO")
+
+    self.assertEquals(rsa.Message([5, 310400273487], 40).ToBytes(True),
+                                  "HELLO")
+    
+    self.assertEquals(rsa.Message.FromBytes("Hey", 24, True).ToBytes(True),
+                      "Hey")
+
+  def test_savelength_exhaustive(self):
+    """Regression test against even division cases."""
+    data = "This was a triumph!!abcd"
+    for i in range(len(data)):
+      for base in (8, 16, 24):
+        self.assertEquals(rsa.Message.FromBytes(data[:i], base, True).ToBytes(True),
+                          data[:i])
 
   def test_FromBytes(self):
     data = "This was a triumph."
     for base in (8, 16, 24, 32, 40):
-      self.assertEquals(rsa.Message.FromBytes(data, base).AsBytes(), data)
+      # Only prefix is guaranteed if we don't save length.
+      self.assertTrue(rsa.Message.FromBytes(data, base).ToBytes().startswith(data))
+
+      # Operations must be inverses.
+      self.assertEquals(rsa.Message.FromBytes(data, base, True).ToBytes(True),
+                        data)
 
   def test_Mapped(self):
-    msg = rsa.Message([72, 69, 76, 76, 79], 5, 8)
-    self.assertEquals(msg.Mapped(lambda x: x + 2).AsBytes(), "JGNNQ")
+    msg = rsa.Message([72, 69, 76, 76, 79], 8)
+    self.assertEquals(msg.Mapped(lambda x: x + 2).ToBytes(), "JGNNQ")
 
 class test_RSA(unittest.TestCase):
   def test_creation_edge(self):
@@ -234,10 +254,7 @@ class test_RSA(unittest.TestCase):
       random_mock.side_effect=random.Random(34).randint
       value = "Hello world! How are you this fine day? I'm doing just great!"
       for nbits in (32, 72, 64, 136):
-        msg = rsa.Message.FromBytes(value, nbits)
-        print len(msg.numbers)
+        msg = rsa.Message.FromBytes(value, nbits, True)
         K = rsa.RSAPrivateKey(nbits)
         k = K.GetPublicKey()
-        self.assertEquals(K.Decrypt(k.Encrypt(msg)).AsBytes(), value)
-
-
+        self.assertEquals(K.Decrypt(k.Encrypt(msg)).ToBytes(True), value)

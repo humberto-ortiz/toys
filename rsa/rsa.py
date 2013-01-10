@@ -6,8 +6,8 @@
 #
 # This is a toy proof of concept for fun. Please do not use for any actual
 # encryption, there are a number of practical considerations relating to quality
-# of the RNG, hardware security, armoring (padding), etc and no effort is made
-# to address these.
+# of the RNG, hardware security, armoring (padding), block chaining etc and no
+# effort is made to address these.
 #
 # Some examples:
 # * http://rdist.root.org/2009/10/06/why-rsa-encryption-padding-is-critical/
@@ -16,8 +16,12 @@
 # * http://web.eecs.umich.edu/~valeria/research/publications/DATE10RSA.pdf
 #
 
+import cPickle
+import cStringIO
 import math
+import optparse
 import random
+import sys
 
 PRIMALITY_ITERATIONS = 100
 DEFAULT_RSA_KEY_LENGTH = 512
@@ -159,22 +163,29 @@ class Message(object):
      a key. This class is used to manage the dual forms of bytestring and number
      sequence. Numbers is a sequence of integers, base is the power of 2 the
      numbers are encoded modulo and must be a multiple of 8 (for simplicity).
-     Caller is responsible for validity of numbers, length, and base -- numbers
-     must be a sequence of integers modulo 2 ** base, and length must be the
-     number of *bytes* to decode."""
-  def __init__(self, numbers, length, base):
+     Caller is responsible for validity of numbers, and base -- numbers
+     must be a sequence of integers modulo 2 ** base."""
+  #TODO: Consider lazy implementation for better large-file performance
+  def __init__(self, numbers, base):
     self.numbers = numbers
-    self.length = length
     self.base = base
 
   @classmethod
-  def FromBytes(klass, data, base):
+  def FromBytes(klass, data, base, savelength=False):
     """Converts the data to a byte sequence in multiples of 8 (could be more
-       efficient but code complexity not worth it)."""
+       efficient but code complexity not worth it). If savelength is True,
+       we will save information on the padding applied, so that ToBytes
+       with restorelength set to True is a true inverse of FromBytes.
+       Otherwise, underfull byte streams will be 0 padded."""
     bytes_per_item = base / 8
     assert bytes_per_item >= 1
     num_items = int(math.ceil(float(len(data)) / bytes_per_item))
     items = []
+    if savelength:
+      overflow = len(data) % bytes_per_item
+      if overflow == 0:
+        overflow = bytes_per_item
+      items.append(overflow)
     for i in range(num_items):
       num = 0
       for byte in data[i * bytes_per_item:(i + 1) * bytes_per_item]:
@@ -182,24 +193,36 @@ class Message(object):
       if (i + 1) * bytes_per_item > len(data):
         num <<= 8 * ((i + 1) * bytes_per_item - len(data))
       items.append(num)
-    return Message(items, len(data), base)
+    return Message(items, base)
 
-  def AsBytes(self):
-    """Converts the message contents to bytes.
-       than 2 ** base, where base is >= 8."""
+  def ToBytes(self, restorelength=False):
+    """Converts the message contents to bytes. If restorelength is True, the
+       first number is interpreted as the number of bytes in the last number
+       (ie, to discard padding). FromBytes and ToBytes are inverses with the
+       length flags set."""
     bytes_per_item = self.base / 8
     assert bytes_per_item >= 1
     my_data = []
-    for item in self.numbers:
+    number_iter = iter(self.numbers)
+
+    # Handle 0 padding if requested.
+    last_num_length = bytes_per_item
+    if restorelength:
+      last_num_length = number_iter.next()
+
+    for item in number_iter:
       for i in reversed(xrange(bytes_per_item)):
         my_data.append(chr((((0xFF << (i * 8)) & item) >> (i * 8))))
-    return ''.join(my_data[:self.length])
+    if last_num_length < bytes_per_item:
+      return "".join(my_data[:-(bytes_per_item - last_num_length)])
+    else:
+      return "".join(my_data)
 
   def Mapped(self, fxn):
     """Returns a new message that is the result of the old with numbers
        transformed by fxn. The result is NOT checked against the base for
        legality."""
-    return Message(map(fxn, self.numbers), self.length, self.base)
+    return Message(map(fxn, self.numbers), self.base)
 
 class RSAPrivateKey(object):
   """Represents an RSA private key. Requires nbits > 2."""
@@ -255,3 +278,104 @@ class RSAPublicKey(object):
     """Encrypts a single number."""
     assert 0 <= number < self.N
     return modexp(number, self.e, self.N)
+
+def load_key(file_path, cast=False):
+  """Attempt to load a key from a file. Will convert private keys to public if
+     cast is True."""
+  fileio = open(file_path, "rb")
+  try:
+    key = cPickle.load(fileio)
+  except Exception:
+    raise
+    raise FailedToLoadKeyfile("Failed to load key file.")
+
+  if cast and not hasattr(key, "Encrypt"):
+    key = key.GetPublicKey()
+
+  return key
+
+def encrypt(args):
+  """Encrypt command line option."""
+  key = load_key(args[1], True)
+
+  infile = open(args[2], "rb") if args[2] != "-" else sys.stdin
+  outfile = open(args[3], "wb") if args[3] != "-" else sys.stdout
+
+  msg = Message.FromFile(infile, key.N, savelength=True)
+  print msg.numbers
+  print key.Encrypt(msg).numbers
+
+  outfile.write(key.Encrypt(msg).ToBytes())
+  if infile is not sys.stdin:
+    infile.close()
+  if outfile is not sys.stdout:
+    outfile.close()
+
+def decrypt(args):
+  """Decrypt command line option"""
+  key = load_key(args[1])
+  if not hasattr(key, "Decrypt"):
+    print >> sys.stderr, ("This key is not capable of decryption."
+                          " You must provide a private key.")
+    return
+
+  infile = open(args[2], "rb") if args[2] != "-" else sys.stdin
+  outfile = open(args[3], "wb") if args[3] != "-" else sys.stdout
+
+  msg = Message.FromFile(infile, key.N, savelength=False)
+  print msg.numbers
+  print key.Decrypt(msg).numbers
+
+  outfile.write(key.Decrypt(msg).ToBytes(True))
+  if infile is not sys.stdin:
+    infile.close()
+  if outfile is not sys.stdout:
+    outfile.close()
+
+def keygen(args):
+  """Keygen command line option"""
+  nbits = int(args[1])
+  if nbits < 3:
+    print >> sys.stderr, "Private key must be at least 3 bits long!"
+    return
+  if args[2] == "-":
+    cPickle.dump(RSAPrivateKey(nbits), sys.stdout, -1)
+  else:
+    cPickle.dump(RSAPrivateKey(nbits), open(args[2], "wb"), -1)
+    cPickle.dump(RSAPrivateKey(nbits).GetPublicKey(),
+                 open(args[2] + ".pub", "wb"), -1)
+
+def publicextract(args):
+  """Public key extract command line option"""
+  infile = open(args[1], "rb") if args[1] != "-" else sys.stdin
+  outfile = open(args[2], "wb") if args[2] != "-" else sys.stdout
+  load_key(infile)
+  if not hasattr(key, "GetPublicKey"):
+    print >> sys.stderr, ("The key you provided is not capable of providing a "
+                          "public key. Is it already a public key?")
+    return
+  cPickle.dumps(key.GetPublicKey(), outfile, -1)
+
+MODES = {"encrypt":encrypt,
+         "decrypt":decrypt,
+         "keygen":keygen,
+         "publicextract":publicextract}
+
+def main():
+  parser = optparse.OptionParser()
+  opts, args = parser.parse_args()
+
+  # Dispatch the command.
+  if len(args) >= 1 and args[0] in MODES:
+    MODES[args[0]](args)
+  else:
+    print >> sys.stderr, \
+             "Usage: %s [encrypt|decrypt] key infile outfile" % sys.argv[0] + \
+             "\n       %s keygen nbits outfile" % sys.argv[0] + \
+             "\n       %s publicextract in_privatekeyfile out_publickeyfile" \
+               % sys.argv[0]
+    return
+
+if __name__ == "__main__":
+  main()
+
