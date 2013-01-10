@@ -211,7 +211,7 @@ class test_Message(unittest.TestCase):
     self.assertEquals(rsa.Message([5, 310400273487], 40).ToBytes(True),
                                   "HELLO")
     
-    self.assertEquals(rsa.Message.FromBytes("Hey", 24, True).ToBytes(True),
+    self.assertEquals(rsa.Message.FromBytes("Hey", 2 ** 24, True).ToBytes(True),
                       "Hey")
 
   def test_savelength_exhaustive(self):
@@ -226,11 +226,26 @@ class test_Message(unittest.TestCase):
     data = "This was a triumph."
     for base in (8, 16, 24, 32, 40):
       # Only prefix is guaranteed if we don't save length.
-      self.assertTrue(rsa.Message.FromBytes(data, base).ToBytes().startswith(data))
+      self.assertTrue(rsa.Message.FromBytes(data, 2 ** base).ToBytes().startswith(data))
 
       # Operations must be inverses.
-      self.assertEquals(rsa.Message.FromBytes(data, base, True).ToBytes(True),
+      self.assertEquals(rsa.Message.FromBytes(data, 2 ** base, True).ToBytes(True),
                         data)
+
+  def test_base_modulo(self):
+    data = "Hello world."
+
+    msg = rsa.Message(map(ord, data), 8)
+    self.assertEquals(msg.base, 8)
+
+    self.assertRaises(AssertionError, rsa.Message, map(ord, data), 7)
+
+    for i in range(13451, 28132):
+      msg = rsa.Message.FromBytes(data, i)
+      self.assertEquals(msg.base, 16)
+
+    msg = rsa.Message.FromBytes(data, 3)
+    self.assertEquals(msg.base, 8)
 
   def test_Mapped(self):
     msg = rsa.Message([72, 69, 76, 76, 79], 8)
@@ -257,4 +272,18 @@ class test_RSA(unittest.TestCase):
         msg = rsa.Message.FromBytes(value, nbits, True)
         K = rsa.RSAPrivateKey(nbits)
         k = K.GetPublicKey()
+        self.assertEquals(K.Decrypt(k.Encrypt(msg)).ToBytes(True), value)
+
+  def test_high_bits_regression(self):
+    """Must be able to encode messages larger than n in any base."""
+    value = "\xFF\xFF\xFF\xFF\xFF"
+    with mock.patch("random.randint") as random_mock:
+      random_mock.side_effect=random.Random(34).randint
+
+      for nbits in (5, 8, 10, 16, 20):
+        K = rsa.RSAPrivateKey(10)
+        k = K.GetPublicKey()
+
+        msg = rsa.Message.FromBytes(value, K.N, True)
+
         self.assertEquals(K.Decrypt(k.Encrypt(msg)).ToBytes(True), value)

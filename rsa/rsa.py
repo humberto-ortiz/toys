@@ -161,22 +161,22 @@ def get_prime(nbits):
 class Message(object):
   """Very simple class to represent a message that can be [de]encoded through
      a key. This class is used to manage the dual forms of bytestring and number
-     sequence. Numbers is a sequence of integers, base is the power of 2 the
-     numbers are encoded modulo and must be a multiple of 8 (for simplicity).
-     Caller is responsible for validity of numbers, and base -- numbers
-     must be a sequence of integers modulo 2 ** base."""
+     sequence. Numbers is a sequence of integers, base is the multiple of 8
+     power of 2 to encode by. Caller is responsible for validity of numbers"""
   #TODO: Consider lazy implementation for better large-file performance
   def __init__(self, numbers, base):
     self.numbers = numbers
+    assert base % 8 == 0
     self.base = base
 
   @classmethod
-  def FromBytes(klass, data, base, savelength=False):
+  def FromBytes(klass, data, modulo, savelength=False):
     """Converts the data to a byte sequence in multiples of 8 (could be more
        efficient but code complexity not worth it). If savelength is True,
        we will save information on the padding applied, so that ToBytes
        with restorelength set to True is a true inverse of FromBytes.
        Otherwise, underfull byte streams will be 0 padded."""
+    base = klass._base_from_modulo(modulo)
     bytes_per_item = base / 8
     assert bytes_per_item >= 1
     num_items = int(math.ceil(float(len(data)) / bytes_per_item))
@@ -224,6 +224,10 @@ class Message(object):
        legality."""
     return Message(map(fxn, self.numbers), self.base)
 
+  @staticmethod
+  def _base_from_modulo(modulo):
+    return int(math.ceil(math.log(modulo, 2) / 8.)) * 8
+
 class RSAPrivateKey(object):
   """Represents an RSA private key. Requires nbits > 2."""
   def __init__(self, nbits=DEFAULT_RSA_KEY_LENGTH):
@@ -255,7 +259,6 @@ class RSAPrivateKey(object):
 
   def Decrypt(self, message):
     """Decrypts a Message."""
-    assert all((0 <= n < self.N for n in message.numbers))
     return message.Mapped(self.DecryptInteger)
 
   def DecryptInteger(self, number):
@@ -271,7 +274,6 @@ class RSAPublicKey(object):
 
   def Encrypt(self, message):
     """Encrypts a message to the RSA key specified."""
-    assert all((0 <= n < self.N for n in message.numbers))
     return message.Mapped(self.EncryptInteger)
 
   def EncryptInteger(self, number):
@@ -301,7 +303,7 @@ def encrypt(args):
   infile = open(args[2], "rb") if args[2] != "-" else sys.stdin
   outfile = open(args[3], "wb") if args[3] != "-" else sys.stdout
 
-  msg = Message.FromFile(infile, key.N, savelength=True)
+  msg = Message.FromBytes(infile.read(), key.N, savelength=True)
   print msg.numbers
   print key.Encrypt(msg).numbers
 
@@ -322,7 +324,7 @@ def decrypt(args):
   infile = open(args[2], "rb") if args[2] != "-" else sys.stdin
   outfile = open(args[3], "wb") if args[3] != "-" else sys.stdout
 
-  msg = Message.FromFile(infile, key.N, savelength=False)
+  msg = Message.FromBytes(infile.read(), key.N, savelength=False)
   print msg.numbers
   print key.Decrypt(msg).numbers
 
