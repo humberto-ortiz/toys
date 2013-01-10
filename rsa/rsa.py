@@ -268,6 +268,12 @@ class RSAPrivateKey(object):
     assert 0 <= number < self.N
     return modexp(number, self.d, self.N)
 
+  def __eq__(self, other):
+    return (self.N == other.N and self.e == other.e and self.d == other.d)
+
+  def __ne__(self, other):
+    return not (self == other)
+
 class RSAPublicKey(object):
   """Represents an RSA public key."""
   def __init__(self, N, e):
@@ -282,6 +288,12 @@ class RSAPublicKey(object):
     """Encrypts a single number."""
     assert 0 <= number < self.N
     return modexp(number, self.e, self.N)
+
+  def __eq__(self, other):
+    return (self.N == other.N and self.e == other.e)
+ 
+  def __ne__(self, other):
+    return not (self == other)
 
 def load_key(file_path, cast=False):
   """Attempt to load a key from a file. Will convert private keys to public if
@@ -307,7 +319,7 @@ def encrypt(args):
 
   msg = key.Encrypt(Message.Encode(infile.read(), key.N))
 
-  cPickle.dump(msg, outfile, -1)
+  cPickle.dump((key, msg), outfile, -1)
   if infile is not sys.stdin:
     infile.close()
   if outfile is not sys.stdout:
@@ -324,7 +336,11 @@ def decrypt(args):
   infile = open(args[2], "rb") if args[2] != "-" else sys.stdin
   outfile = open(args[3], "wb") if args[3] != "-" else sys.stdout
 
-  msg = cPickle.load(infile)
+  enc_key, msg = cPickle.load(infile)
+  if enc_key != key:
+    print >> sys.stderr, ("This key does not match the key this message was "
+                          "encrypted to.")
+    return
 
   outfile.write(key.Decrypt(msg).Decode())
   if infile is not sys.stdin:
@@ -335,8 +351,8 @@ def decrypt(args):
 def keygen(args):
   """Keygen command line option"""
   nbits = int(args[1])
-  if nbits < 3:
-    print >> sys.stderr, "Private key must be at least 3 bits long!"
+  if nbits < 8:
+    print >> sys.stderr, "Private key must be at least 8 bits long!"
     return
   if args[2] == "-":
     cPickle.dump(RSAPrivateKey(nbits), sys.stdout, -1)
