@@ -30,6 +30,12 @@ DEFAULT_RSA_KEY_LENGTH = 512
 # This must be at least 4, and should ideally be the native word size.
 NATIVE_MATH_MAX = 1 << 64
 
+class RSAException(Exception):
+  pass
+
+class DecodeRangeError(RSAException):
+  pass
+
 def _extended_euclidean(a, b):
   """Helper function that runs the extended Euclidean algorithm, which
      finds x and y st a * x + b * y = gcd(a, b). Used for gcd and modular
@@ -161,60 +167,56 @@ def get_prime(nbits):
 class Message(object):
   """Very simple class to represent a message that can be [de]encoded through
      a key. This class is used to manage the dual forms of bytestring and number
-     sequence. Numbers is a sequence of integers, base is the multiple of 8
-     power of 2 to encode by. Caller is responsible for validity of numbers"""
+     sequence. Numbers is a sequence of integers, modulo is the mod we work in.
+     Caller is responsible for validity of numbers. The encoding used here is
+     extremely simple and inefficient in space use."""
   #TODO: Consider lazy implementation for better large-file performance
-  def __init__(self, numbers, base):
+  def __init__(self, numbers, modulo, overflow):
     self.numbers = numbers
-    assert base % 8 == 0
-    self.base = base
+    self.modulo = modulo
+    self.overflow = overflow
 
   @classmethod
-  def FromBytes(klass, data, modulo, savelength=False):
+  def Encode(klass, data, modulo):
     """Converts the data to a byte sequence in multiples of 8 (could be more
-       efficient but code complexity not worth it). If savelength is True,
-       we will save information on the padding applied, so that ToBytes
-       with restorelength set to True is a true inverse of FromBytes.
-       Otherwise, underfull byte streams will be 0 padded."""
+       efficient but code complexity not worth it)."""
+    assert modulo > 2 ** 8
     base = klass._base_from_modulo(modulo)
-    bytes_per_item = base / 8
+    bytes_per_item = base / 8 - 1
     assert bytes_per_item >= 1
     num_items = int(math.ceil(float(len(data)) / bytes_per_item))
     items = []
-    if savelength:
-      overflow = len(data) % bytes_per_item
-      if overflow == 0:
-        overflow = bytes_per_item
-      items.append(overflow)
+    overflow = len(data) % bytes_per_item
+    if overflow == 0:
+      overflow = bytes_per_item
     for i in range(num_items):
       num = 0
       for byte in data[i * bytes_per_item:(i + 1) * bytes_per_item]:
         num = ((num << 8) + ord(byte))
       if (i + 1) * bytes_per_item > len(data):
         num <<= 8 * ((i + 1) * bytes_per_item - len(data))
+      assert 0 <= num < 256 ** bytes_per_item
       items.append(num)
-    return Message(items, base)
+    return Message(items, modulo, overflow)
 
-  def ToBytes(self, restorelength=False):
-    """Converts the message contents to bytes. If restorelength is True, the
-       first number is interpreted as the number of bytes in the last number
-       (ie, to discard padding). FromBytes and ToBytes are inverses with the
-       length flags set."""
-    bytes_per_item = self.base / 8
+  def Decode(self):
+    """Converts the message contents to bytes. Requires that all numbers are
+       modulo the base (IE, you can't decode arbitrary messages, such as the
+       output of encryption. Throws DecodeRangeError in such cases. This is
+       necessary because inputs may be arbitrary data, but encrypted data will
+       be modulo some number N, which is represented by ceil(log(N, 2)) bits."""
+    base = self._base_from_modulo(self.modulo)
+    bytes_per_item = base / 8 - 1
     assert bytes_per_item >= 1
     my_data = []
-    number_iter = iter(self.numbers)
 
-    # Handle 0 padding if requested.
-    last_num_length = bytes_per_item
-    if restorelength:
-      last_num_length = number_iter.next()
-
-    for item in number_iter:
+    for item in self.numbers:
+      if not 0 <= item < 256 ** bytes_per_item:
+        raise DecodeRangeError()
       for i in reversed(xrange(bytes_per_item)):
         my_data.append(chr((((0xFF << (i * 8)) & item) >> (i * 8))))
-    if last_num_length < bytes_per_item:
-      return "".join(my_data[:-(bytes_per_item - last_num_length)])
+    if self.overflow < bytes_per_item:
+      return "".join(my_data[:-(bytes_per_item - self.overflow)])
     else:
       return "".join(my_data)
 
@@ -222,7 +224,7 @@ class Message(object):
     """Returns a new message that is the result of the old with numbers
        transformed by fxn. The result is NOT checked against the base for
        legality."""
-    return Message(map(fxn, self.numbers), self.base)
+    return Message(map(fxn, self.numbers), self.modulo, self.overflow)
 
   @staticmethod
   def _base_from_modulo(modulo):
@@ -303,11 +305,9 @@ def encrypt(args):
   infile = open(args[2], "rb") if args[2] != "-" else sys.stdin
   outfile = open(args[3], "wb") if args[3] != "-" else sys.stdout
 
-  msg = Message.FromBytes(infile.read(), key.N, savelength=True)
-  print msg.numbers
-  print key.Encrypt(msg).numbers
+  msg = key.Encrypt(Message.Encode(infile.read(), key.N))
 
-  outfile.write(key.Encrypt(msg).ToBytes())
+  cPickle.dump(msg, outfile, -1)
   if infile is not sys.stdin:
     infile.close()
   if outfile is not sys.stdout:
@@ -324,11 +324,9 @@ def decrypt(args):
   infile = open(args[2], "rb") if args[2] != "-" else sys.stdin
   outfile = open(args[3], "wb") if args[3] != "-" else sys.stdout
 
-  msg = Message.FromBytes(infile.read(), key.N, savelength=False)
-  print msg.numbers
-  print key.Decrypt(msg).numbers
+  msg = cPickle.load(infile)
 
-  outfile.write(key.Decrypt(msg).ToBytes(True))
+  outfile.write(key.Decrypt(msg).Decode())
   if infile is not sys.stdin:
     infile.close()
   if outfile is not sys.stdout:

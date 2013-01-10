@@ -192,64 +192,44 @@ class test_rsa_get_prime(unittest.TestCase):
 
 class test_Message(unittest.TestCase):
   def test_message_edge(self):
-    self.assertEquals(rsa.Message([72, 69, 76, 76, 79], 8).ToBytes(),
+    self.assertEquals(rsa.Message([72, 69, 76, 76, 79], 2 ** 16, 1).Decode(),
                                   "HELLO")
 
-    self.assertEquals(rsa.Message([18501, 19532, 20257], 16).ToBytes(),
+    self.assertEquals(rsa.Message([18501, 19532, 20257], 2 ** 24, 2).Decode(),
                                   "HELLO!")
 
-    self.assertEquals(rsa.Message([3, 310400273487], 40).ToBytes(True),
+    self.assertEquals(rsa.Message([310400253952], 2 ** 48, 3).Decode(),
                                   "HEL")
 
-  def test_savelength_basic(self):
-    self.assertEquals(rsa.Message([0, 18501, 19532, 20257], 16).ToBytes(True),
-                                  "HELL")
-
-    self.assertEquals(rsa.Message([1, 18501, 19532, 20257], 16).ToBytes(True),
-                                  "HELLO")
-
-    self.assertEquals(rsa.Message([5, 310400273487], 40).ToBytes(True),
-                                  "HELLO")
-    
-    self.assertEquals(rsa.Message.FromBytes("Hey", 2 ** 24, True).ToBytes(True),
-                      "Hey")
+    self.assertEquals(rsa.Message.Encode("Hey", 2 ** 32).Decode(), "Hey")
 
   def test_savelength_exhaustive(self):
     """Regression test against even division cases."""
     data = "This was a triumph!!abcd"
     for i in range(len(data)):
-      for base in (8, 16, 24):
-        self.assertEquals(rsa.Message.FromBytes(data[:i], base, True).ToBytes(True),
-                          data[:i])
+      for base in (16, 24, 32):
+        self.assertEquals(
+            data[:i], rsa.Message.Encode(data[:i], 2 ** base).Decode())
 
-  def test_FromBytes(self):
-    data = "This was a triumph."
-    for base in (8, 16, 24, 32, 40):
-      # Only prefix is guaranteed if we don't save length.
-      self.assertTrue(rsa.Message.FromBytes(data, 2 ** base).ToBytes().startswith(data))
+  def test_Encode(self):
+    for data in ("This was a triumph.", "\xFF\xFF"):
+      for base in (9, 16, 24, 32, 40):
+        # Operations must be inverses.
+        self.assertEquals(rsa.Message.Encode(data, 2 ** base).Decode(),
+                          data)
 
-      # Operations must be inverses.
-      self.assertEquals(rsa.Message.FromBytes(data, 2 ** base, True).ToBytes(True),
-                        data)
-
-  def test_base_modulo(self):
-    data = "Hello world."
-
-    msg = rsa.Message(map(ord, data), 8)
-    self.assertEquals(msg.base, 8)
-
-    self.assertRaises(AssertionError, rsa.Message, map(ord, data), 7)
-
-    for i in range(13451, 28132):
-      msg = rsa.Message.FromBytes(data, i)
-      self.assertEquals(msg.base, 16)
-
-    msg = rsa.Message.FromBytes(data, 3)
-    self.assertEquals(msg.base, 8)
 
   def test_Mapped(self):
-    msg = rsa.Message([72, 69, 76, 76, 79], 8)
-    self.assertEquals(msg.Mapped(lambda x: x + 2).ToBytes(), "JGNNQ")
+    msg = rsa.Message([72, 69, 76, 76, 79], 2 ** 16, 1)
+    self.assertEquals(msg.Mapped(lambda x: x + 2).Decode(), "JGNNQ")
+
+  def test_high_bits_encoding_regression(self):
+    """Must be able to encode messages larger than n in any base."""
+    value = "\xFF\xFF\xFF\xFF\xFF"
+
+    prime = 58579
+    msg = rsa.Message.Encode(value, prime).Mapped(lambda n: n % prime)
+    self.assertEquals(msg.Decode(), value)
 
 class test_RSA(unittest.TestCase):
   def test_creation_edge(self):
@@ -269,21 +249,21 @@ class test_RSA(unittest.TestCase):
       random_mock.side_effect=random.Random(34).randint
       value = "Hello world! How are you this fine day? I'm doing just great!"
       for nbits in (32, 72, 64, 136):
-        msg = rsa.Message.FromBytes(value, nbits, True)
+        msg = rsa.Message.Encode(value, 2 ** nbits)
         K = rsa.RSAPrivateKey(nbits)
         k = K.GetPublicKey()
-        self.assertEquals(K.Decrypt(k.Encrypt(msg)).ToBytes(True), value)
+        self.assertEquals(K.Decrypt(k.Encrypt(msg)).Decode(), value)
 
-  def test_high_bits_regression(self):
-    """Must be able to encode messages larger than n in any base."""
+  def test_high_bits_encryption_regression(self):
+    """Must be able to crypt messages larger than n in any base."""
     value = "\xFF\xFF\xFF\xFF\xFF"
     with mock.patch("random.randint") as random_mock:
       random_mock.side_effect=random.Random(34).randint
 
-      for nbits in (5, 8, 10, 16, 20):
+      for nbits in (10, 16, 20):
         K = rsa.RSAPrivateKey(10)
         k = K.GetPublicKey()
 
-        msg = rsa.Message.FromBytes(value, K.N, True)
+        msg = rsa.Message.Encode(value, K.N)
 
-        self.assertEquals(K.Decrypt(k.Encrypt(msg)).ToBytes(True), value)
+        self.assertEquals(K.Decrypt(k.Encrypt(msg)).Decode(), value)
