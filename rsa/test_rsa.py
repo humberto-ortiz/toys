@@ -1,5 +1,8 @@
+import contextlib
+import cPickle
 import mock
 import random
+import StringIO
 import unittest
 
 import rsa
@@ -202,6 +205,9 @@ class test_Message(unittest.TestCase):
                                   "HEL")
 
     self.assertEquals(rsa.Message.Encode("Hey", 2 ** 32).Decode(), "Hey")
+  
+    with self.assertRaises(rsa.DecodeRangeError):
+      rsa.Message([65537], 2 ** 24, 2).Decode()
 
   def test_savelength_exhaustive(self):
     """Regression test against even division cases."""
@@ -218,7 +224,6 @@ class test_Message(unittest.TestCase):
         self.assertEquals(rsa.Message.Encode(data, 2 ** base).Decode(),
                           data)
 
-
   def test_Mapped(self):
     msg = rsa.Message([72, 69, 76, 76, 79], 2 ** 16, 1)
     self.assertEquals(msg.Mapped(lambda x: x + 2).Decode(), "JGNNQ")
@@ -230,6 +235,15 @@ class test_Message(unittest.TestCase):
     prime = 58579
     msg = rsa.Message.Encode(value, prime).Mapped(lambda n: n % prime)
     self.assertEquals(msg.Decode(), value)
+
+  def test_eq_neq(self):
+    msg1a = rsa.Message([18501, 19532, 20257], 2 ** 24, 2)
+    msg1b = rsa.Message([18501, 19532, 20257], 2 ** 24, 2)
+    msg2 = rsa.Message.Encode("Hello!", 2 ** 24)
+
+    self.assertEquals(msg1a, msg1b)
+    self.assertNotEquals(msg1a, msg2)
+    self.assertEquals(msg2, msg2)
 
 class test_RSA(unittest.TestCase):
   def test_creation_edge(self):
@@ -267,3 +281,201 @@ class test_RSA(unittest.TestCase):
         msg = rsa.Message.Encode(value, K.N)
 
         self.assertEquals(K.Decrypt(k.Encrypt(msg)).Decode(), value)
+  
+  def test_eq_neq(self):
+    with mock.patch("random.randint") as random_mock:
+      random_mock.side_effect=random.Random(34).randint
+      key1a = rsa.RSAPrivateKey(10)
+      random_mock.side_effect=random.Random(34).randint
+      key1b = rsa.RSAPrivateKey(10)
+      key2 = rsa.RSAPrivateKey(10)
+
+      self.assertTrue(key1a == key1b)
+      self.assertTrue(key1a is not key1b)
+      self.assertFalse(key1a != key1b)
+      self.assertTrue(key1a != key2)
+      self.assertFalse(key1b == key2)
+
+      self.assertTrue(key1a.GetPublicKey() == key1b.GetPublicKey())
+      self.assertTrue(key1a.GetPublicKey() is not key1b.GetPublicKey())
+      self.assertFalse(key1a.GetPublicKey() != key1b.GetPublicKey())
+      self.assertTrue(key1a.GetPublicKey() != key2.GetPublicKey())
+      self.assertFalse(key1b.GetPublicKey() == key2.GetPublicKey())
+
+# Begin CLI tests
+
+def make_fs_side_effect(tester, files):
+  """Helper to create a mock filesystem from a dict of file data."""
+  def open_file(fn, mode, buf=-1):
+    tester.assertIn(fn, files)
+    fd, good_mode = files[fn]
+    tester.assertEquals(mode, good_mode)
+    fd.close = lambda: None
+    return fd
+  return open_file
+
+class test_load_key(unittest.TestCase):
+  def test_load_key(self):
+    with mock.patch("random.randint") as random_mock:
+      random_mock.side_effect=random.Random(34).randint
+      key = rsa.RSAPrivateKey(12)
+
+      priv_pck = StringIO.StringIO(cPickle.dumps(key, -1))
+      pub_pck = StringIO.StringIO(cPickle.dumps(key.GetPublicKey(), -1))
+
+      self.assertEquals(rsa._load_key(pub_pck), key.GetPublicKey())
+      self.assertEquals(rsa._load_key(priv_pck), key)
+
+      priv_pck.seek(0)
+
+      self.assertEquals(rsa._load_key(priv_pck, cast=True), key.GetPublicKey())
+
+      self.assertRaises(rsa.FailedToLoadKeyfile, rsa._load_key, pub_pck)
+
+class test_encrypt_decrypt(unittest.TestCase):
+  def setUp(self):
+    with mock.patch("random.randint") as rmock:
+      rmock.side_effect=random.Random(34).randint
+      key = rsa.RSAPrivateKey(12)
+      badkey = rsa.RSAPrivateKey(10)
+      good = (key.GetPublicKey(),
+              rsa.Message([1385493, 12416809, 4364045], 13021759, 1))
+      files = {"pub":(StringIO.StringIO(cPickle.dumps(key.GetPublicKey(),
+                                                        -1)), "rb"),
+               "priv":(StringIO.StringIO(cPickle.dumps(key, -1)), "rb"),
+               "badkey":(StringIO.StringIO(cPickle.dumps(badkey, -1)), "rb"),
+               "in":(StringIO.StringIO("Hello"), "rb"),
+               "good":(StringIO.StringIO(cPickle.dumps(good)), "rb"),
+               "enc1":(StringIO.StringIO(), "wb"),
+               "enc2":(StringIO.StringIO(), "wb"),
+               "dec":(StringIO.StringIO(), "wb")}
+      self.key = key
+      self.opener_fxn = make_fs_side_effect(self, files)
+      self.files = files
+
+  def test_encrypt(self):
+    with mock.patch("__builtin__.open") as opener:
+      opener.side_effect = self.opener_fxn
+      rsa.encrypt(["", "pub", "in", "enc1"])
+      self.files["in"][0].seek(0)
+      rsa.encrypt(["", "priv", "in", "enc2"])
+
+      enc1 = cPickle.loads(self.files["enc1"][0].getvalue())
+      enc2 = cPickle.loads(self.files["enc2"][0].getvalue())
+      good = cPickle.loads(self.files["good"][0].getvalue())
+      self.assertEquals(enc1, good)
+      self.assertEquals(enc2, good)
+
+  def test_decrypt(self):
+    with mock.patch("__builtin__.open") as opener:
+      opener.side_effect = self.opener_fxn
+      rsa.decrypt(["", "priv", "good", "dec"])
+
+      dec = self.files["dec"][0].getvalue()
+      good = self.files["in"][0].getvalue()
+      self.assertEquals(dec, good)
+
+  def test_wrong_decrypt(self):
+    with contextlib.nested(mock.patch("__builtin__.open"),
+                           mock.patch("sys.stderr")) as (opener, stderr):
+      opener.side_effect = self.opener_fxn
+      stderr_backing = StringIO.StringIO()
+      stderr.write = stderr_backing.write
+      rsa.decrypt(["", "badkey", "good", "dec"])
+      self.assertRegexpMatches(stderr_backing.getvalue(), "does not match the key")
+      self.assertEquals(self.files["dec"][0].getvalue(), "")
+
+  def test_pub_decrypt(self):
+    with contextlib.nested(mock.patch("__builtin__.open"),
+                           mock.patch("sys.stderr")) as (opener, stderr):
+      opener.side_effect = self.opener_fxn
+      stderr_backing = StringIO.StringIO()
+      stderr.write = stderr_backing.write
+      rsa.decrypt(["", "pub", "good", "dec"])
+      self.assertRegexpMatches(stderr_backing.getvalue(), "not capable of decryption")
+      self.assertEquals(self.files["dec"][0].getvalue(), "")
+
+class test_keygen(unittest.TestCase):
+  def setUp(self):
+    with mock.patch("random.randint") as rmock:
+      rmock.side_effect=random.Random(34).randint
+      self.key = rsa.RSAPrivateKey(12)
+      files = {"key":(StringIO.StringIO(), "wb"),
+               "key.pub":(StringIO.StringIO(), "wb")}
+      self.opener_fxn = make_fs_side_effect(self, files)
+      self.files = files
+
+  def test_keygen_stdout(self):
+    with contextlib.nested(mock.patch("sys.stdout"),
+                           mock.patch("random.randint")) as (cout, rmock):
+      rmock.side_effect=random.Random(34).randint
+      stdout = StringIO.StringIO()
+      cout.write = stdout.write
+      rsa.keygen(["", "12", "-"])
+      self.assertEquals(cPickle.loads(stdout.getvalue()).GetPublicKey(), 
+                        self.key.GetPublicKey())
+      self.assertEquals(cPickle.loads(stdout.getvalue()), self.key)
+
+  def test_keygen(self):
+    with contextlib.nested(mock.patch("__builtin__.open"),
+                           mock.patch("random.randint")) as (opener, rmock):
+      rmock.side_effect=random.Random(34).randint
+      opener.side_effect = self.opener_fxn
+      rsa.keygen(["", "12", "key"])
+      self.assertEquals(cPickle.loads(self.files["key"][0].getvalue()).GetPublicKey(), 
+                        self.key.GetPublicKey())
+      self.assertEquals(cPickle.loads(self.files["key"][0].getvalue()), 
+                        self.key)
+
+  def test_too_short(self):
+    with contextlib.nested(mock.patch("__builtin__.open"),
+                           mock.patch("sys.stderr"),
+                           mock.patch("random.randint")) as (opener, cerr, rmock):
+      stderr = StringIO.StringIO()
+      rmock.side_effect=random.Random(34).randint
+      opener.side_effect = self.opener_fxn
+      cerr.write = stderr.write
+
+      rsa.keygen(["", "7", "key"])
+      self.assertEquals(self.files["key"][0].getvalue(), "")
+
+      rmock.side_effect=random.Random(34).randint
+      rsa.keygen(["", "8", "key"])
+      rmock.side_effect=random.Random(34).randint
+      shortkey = rsa.RSAPrivateKey(8)
+      self.assertEquals(cPickle.loads(self.files["key"][0].getvalue()).GetPublicKey(), 
+                        shortkey.GetPublicKey())
+      self.assertEquals(cPickle.loads(self.files["key"][0].getvalue()), shortkey)
+      self.assertEquals(cPickle.loads(self.files["key.pub"][0].getvalue()),
+                        shortkey.GetPublicKey())
+                        
+
+class test_publicextract(unittest.TestCase):
+  def setUp(self):
+    with mock.patch("random.randint") as rmock:
+      rmock.side_effect=random.Random(34).randint
+      key = rsa.RSAPrivateKey(12)
+      files = {"pub":(StringIO.StringIO(cPickle.dumps(key.GetPublicKey(),
+                                                        -1)), "rb"),
+               "priv":(StringIO.StringIO(cPickle.dumps(key, -1)), "rb"),
+               "out":(StringIO.StringIO(), "wb")}
+      self.key = key
+      self.opener_fxn = make_fs_side_effect(self, files)
+      self.files = files
+
+  def test_extract_pub(self):
+    with mock.patch("__builtin__.open") as opener:
+      opener.side_effect = self.opener_fxn
+      rsa.publicextract(["", "priv", "out"])
+      self.assertEquals(self.files["pub"][0].getvalue(),
+                        self.files["out"][0].getvalue())
+
+  def test_extract_pub_fail(self):
+    with contextlib.nested(mock.patch("__builtin__.open"),
+                           mock.patch("sys.stderr")) as (opener, stderr_mock):
+      stderr = StringIO.StringIO()
+      stderr_mock.write = stderr.write
+      opener.side_effect = self.opener_fxn
+      rsa.publicextract(["", "pub", "out"])
+      self.assertEquals(self.files["out"][0].getvalue(), "")
+      self.assertRegexpMatches(stderr.getvalue(), "not capable of")

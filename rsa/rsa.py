@@ -6,8 +6,8 @@
 #
 # This is a toy proof of concept for fun. Please do not use for any actual
 # encryption, there are a number of practical considerations relating to quality
-# of the RNG, hardware security, armoring (padding), block chaining etc and no
-# effort is made to address these.
+# of the RNG, hardware security, armoring (padding), block chaining, swapping
+# out sensitive pages, etc and no effort is made to address these.
 #
 # Some examples:
 # * http://rdist.root.org/2009/10/06/why-rsa-encryption-padding-is-critical/
@@ -34,6 +34,9 @@ class RSAException(Exception):
   pass
 
 class DecodeRangeError(RSAException):
+  pass
+
+class FailedToLoadKeyfile(RSAException):
   pass
 
 def _extended_euclidean(a, b):
@@ -230,6 +233,13 @@ class Message(object):
   def _base_from_modulo(modulo):
     return int(math.ceil(math.log(modulo, 2) / 8.)) * 8
 
+  def __eq__(self, other):
+    return (self.numbers == other.numbers and self.overflow == other.overflow and
+            self.modulo == other.modulo)
+
+  def __ne__(self, other):
+    return not (self == other)
+
 class RSAPrivateKey(object):
   """Represents an RSA private key. Requires nbits > 2."""
   def __init__(self, nbits=DEFAULT_RSA_KEY_LENGTH):
@@ -295,24 +305,21 @@ class RSAPublicKey(object):
   def __ne__(self, other):
     return not (self == other)
 
-def load_key(file_path, cast=False):
+def _load_key(fileio, cast=False):
   """Attempt to load a key from a file. Will convert private keys to public if
      cast is True."""
-  fileio = open(file_path, "rb")
   try:
     key = cPickle.load(fileio)
+    if cast and not hasattr(key, "Encrypt"):
+      key = key.GetPublicKey()
   except Exception:
-    raise
     raise FailedToLoadKeyfile("Failed to load key file.")
-
-  if cast and not hasattr(key, "Encrypt"):
-    key = key.GetPublicKey()
 
   return key
 
 def encrypt(args):
   """Encrypt command line option."""
-  key = load_key(args[1], True)
+  key = _load_key(open(args[1], "rb"), True)
 
   infile = open(args[2], "rb") if args[2] != "-" else sys.stdin
   outfile = open(args[3], "wb") if args[3] != "-" else sys.stdout
@@ -327,7 +334,7 @@ def encrypt(args):
 
 def decrypt(args):
   """Decrypt command line option"""
-  key = load_key(args[1])
+  key = _load_key(open(args[1], "rb"))
   if not hasattr(key, "Decrypt"):
     print >> sys.stderr, ("This key is not capable of decryption."
                           " You must provide a private key.")
@@ -354,23 +361,24 @@ def keygen(args):
   if nbits < 8:
     print >> sys.stderr, "Private key must be at least 8 bits long!"
     return
+  key = RSAPrivateKey(nbits)
   if args[2] == "-":
-    cPickle.dump(RSAPrivateKey(nbits), sys.stdout, -1)
+    cPickle.dump(key, sys.stdout, -1)
   else:
-    cPickle.dump(RSAPrivateKey(nbits), open(args[2], "wb"), -1)
-    cPickle.dump(RSAPrivateKey(nbits).GetPublicKey(),
+    cPickle.dump(key, open(args[2], "wb"), -1)
+    cPickle.dump(key.GetPublicKey(),
                  open(args[2] + ".pub", "wb"), -1)
 
 def publicextract(args):
   """Public key extract command line option"""
   infile = open(args[1], "rb") if args[1] != "-" else sys.stdin
   outfile = open(args[2], "wb") if args[2] != "-" else sys.stdout
-  load_key(infile)
+  key = _load_key(infile)
   if not hasattr(key, "GetPublicKey"):
     print >> sys.stderr, ("The key you provided is not capable of providing a "
                           "public key. Is it already a public key?")
     return
-  cPickle.dumps(key.GetPublicKey(), outfile, -1)
+  cPickle.dump(key.GetPublicKey(), outfile, -1)
 
 MODES = {"encrypt":encrypt,
          "decrypt":decrypt,
