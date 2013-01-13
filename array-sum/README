@@ -1,0 +1,6 @@
+A fun little problem I heard in lab the other day: Given a 2D array of integers,
+you want to efficiently get the sum of a large number of arbitrary rectangles
+within it. The key is to generate the prefix sums for all rectangles starting
+at (0, 0), then compute the area of any rectangle in terms of these. This, you
+need linear precomputation time and space (in number of elements of the array),
+and can then find the sum of any rectangle in constant time.
