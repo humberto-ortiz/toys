@@ -7,9 +7,11 @@
 # This is a toy proof of concept for fun. Please do not use for any actual
 # encryption, there are a number of practical considerations relating to quality
 # of the RNG, hardware security, armoring (padding), block chaining, swapping
-# out sensitive pages, etc and no effort is made to address these.
+# out sensitive pages, etc and no effort is made to address these -- the attacks
+# on the below Wikipedia page are all effective.
 #
 # Some examples:
+# * http://en.wikipedia.org/wiki/RSA_(algorithm)#Attacks_against_plain_RSA
 # * http://rdist.root.org/2009/10/06/why-rsa-encryption-padding-is-critical/
 # * http://www.imc.org/ietf-openpgp/mail-archive/msg14307.html
 # * http://rdist.root.org/2008/03/10/advances-in-rsa-fault-attacks/
