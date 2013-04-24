@@ -75,16 +75,16 @@ int main() {
   for (int i = 0; i < 14000000; ++i) {
     int key(rand() % 100000 - 50000);
     int val = rand() % 1000000 - 500000;
-//    tree.insert(key, val);
-    tester[key] = val;
+    tree.insert(key, val);
+//    tester[key] = val;
   }
 
   for (int i = -50005; i < 50005; ++i) {
-//    tree.remove(i);
-    auto aa = tester.find(i);
+    tree.remove(i, true);
+/*    auto aa = tester.find(i);
     if (aa != tester.end()) {
       tester.erase(aa);
-    }
+    }*/
   }
 
 }
