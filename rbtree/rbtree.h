@@ -260,9 +260,9 @@ class RBTree {
       #endif
 
       Node_t* prev;
-      Node_t* loc; // z
-      Node_t* tmp; // y
-      Node_t* cur; // x
+      Node_t* loc;
+      Node_t* tmp;
+      Node_t* cur;
       std::tie(prev, loc) = locate(key);
       if (!loc) {
         return;
@@ -270,92 +270,128 @@ class RBTree {
 
       --mSize;
 
-      if (loc == mTree.get()) {
-        // Deleted node is root.
-        if (!loc->left && !loc->right) {
-          mTree.reset();
-          return;
-        } else if (loc->left && !loc->right) {
-          mTree = loc->left;
-          return;
-        } else if (loc->right && !loc->left) {
-          mTree = loc->left;
-          return;
-        } else {
-          Node_t* succ = treeSuccessor(loc);
-          assert(!succ->left);
-          std::swap(loc->key, succ->key);
-          std::swap(loc->value, succ->value);
+      std::unique_ptr<Node_t>& holder = getInRef(loc);
+      std::unique_ptr<Node_t> removed_node = std::move(holder);
 
-          if (succ->parent->left.get() == succ) {
-            succ->parent->left = std::move(succ->right);
-          } else {
-            succ->parent->right = std::move(succ->right);
-          }
+      if (!loc->left && !loc->right) {
+        if (!loc->parent) {
+          return;
         }
+        cur = removed_node.get();
+        removed_node->parent = loc->parent;
+      } else if (loc->left && !loc->right) {
+        cur = loc->left.get();
+        loc->left->parent = loc->parent;
+        holder = std::move(loc->left);
+      } else if (loc->right && !loc->left) {
+        cur = loc->right.get();
+        loc->right->parent = loc->parent;
+        holder = std::move(loc->right);
       } else {
-        // Deleted node is not root.
-        std::unique_ptr<Node_t>& holder = (loc->parent->left ?
-                                           loc->parent->left.get() == loc :
-                                           loc->parent->right);
-        if (!loc->left && !loc->right) {
-          holder.reset();
-        } else if (loc->left && !loc->right) {
-          holder.reset(loc->left);
-        } else if (loc->right && !loc->left) {
-          holder.reset(loc->right);
-        } else {
-          Node_t* succ = treeSuccessor(loc);
-          assert(!succ->left);
-          std::swap(loc->key, succ->key);
-          std::swap(loc->value, succ->value);
+        // A successor is guaranteed to exist since node has two children, and
+        // it must have a null left since otherwise that left would be the succ.
+        holder = std::move(removed_node);
+        Node_t* succ = treeSuccessor(loc);
+        cur = succ->right.get();
+        assert(!succ->left);
+        std::swap(loc->key, succ->key);
+        std::swap(loc->value, succ->value);
 
-          if (succ->parent->left.get() == succ) {
-            succ->parent->left = std::move(succ->right);
-          } else {
-            succ->parent->right = std::move(succ->right);
-          }
+        if (succ->right) {
+          succ->right->parent = succ;
+        }
+
+        if (succ->parent->left.get() == succ) {
+          removed_node = std::move(succ->parent->left);
+          succ->parent->left = std::move(succ->right);
+        } else {
+          removed_node = std::move(succ->parent->right);
+          succ->parent->right = std::move(succ->right);
         }
       }
 
-      /*
-      if (!loc->left || !loc->right) {
-        tmp = loc;
-      } else {
-        tmp = treeSuccessor(loc);
+      // If necessary, rebalance the tree.
+      if (removed_node->color == COLOR::BLACK) {
+        while (cur != mTree.get() && cur->color == COLOR::BLACK) {
+          Node_t* sibling;
+          if (cur->parent->left.get() == cur) {
+            sibling = cur->parent->right.get();
+            if (sibling && sibling->color == COLOR::RED) {
+              sibling->color = COLOR::BLACK;
+              cur->parent->color = COLOR::RED;
+              rotateLeft(cur->parent);
+              sibling = cur->parent->right.get();
+            }
+            if (sibling && 
+                (!sibling->left || sibling->left->color == COLOR::BLACK) &&
+                (!sibling->right || sibling->right->color == COLOR::BLACK)) {
+              sibling->color = COLOR::RED;
+              cur = cur->parent;
+            } else {
+              if (sibling->right->color == COLOR::BLACK) {
+                sibling->left->color = COLOR::BLACK;
+                sibling->color = COLOR::RED;
+                rotateRight(sibling);
+                sibling = cur->parent->right.get();
+              }
+              sibling->color = cur->parent->color;
+              cur->parent->color = COLOR::BLACK;
+              sibling->right->color = COLOR::BLACK;
+              rotateLeft(cur->parent);
+              cur = mTree.get();
+            }
+          } else {
+            sibling = cur->parent->left.get();
+            if (sibling && sibling->color == COLOR::RED) {
+              sibling->color = COLOR::BLACK;
+              cur->parent->color = COLOR::RED;
+              rotateRight(cur->parent);
+              sibling = cur->parent->left.get();
+            }
+            if (sibling &&
+                (!sibling->right || sibling->right->color == COLOR::BLACK) &&
+                (!sibling->left || sibling->left->color == COLOR::BLACK)) {
+              sibling->color = COLOR::RED;
+              cur = cur->parent;
+            } else {
+              if (sibling->left->color == COLOR::BLACK) {
+                sibling->right->color = COLOR::BLACK;
+                sibling->color = COLOR::RED;
+                rotateRight(sibling);
+                sibling = cur->parent->left.get();
+              }
+              sibling->color = cur->parent->color;
+              cur->parent->color = COLOR::BLACK;
+              sibling->left->color = COLOR::BLACK;
+              rotateRight(cur->parent);
+              cur = mTree.get();
+            }
+          }
+        }
+        cur->color = COLOR::BLACK;
       }
 
-      if (tmp->left) {
-        cur = tmp->left.get();
-      } else {
-        cur = tmp->right.get();
-      }
-
-      cur->parent = tmp->parent;
-
-      if (!tmp->parent) {
-        mTree = getInRef(cur);
-      } else if (tmp->parent->left.get() == tmp) {
-        tmp->parent->left = cur;
-      } else {
-        tmp->parent->right = cur;
-      }
-
-      if (tmp != loc) {
-        std::swap(cur->key, tmp->key);
-        std::swap(cur->value, tmp->value);
-      }
-
-      if (tmp->color == COLOR::BLACK) {
-        
-      }*/
-    
       #ifdef _DEBUG
         checkInvariant();
       #endif
     }
 
   private:
+    Node_t* treeSuccessor(const Node_t* node_in) {
+      #ifdef _DEBUG
+        checkInvariant();
+      #endif
+
+      assert(node_in);
+      Node_t* node = node->right.get();
+      assert(node);
+
+      while (node->left) {
+        node = node->left.get();
+      }
+      return node;
+    }
+
     void checkInvariant() const {
       // Need to check:
       // 1) All leaves are black.
