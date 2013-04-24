@@ -10,7 +10,7 @@
 #include <stack>
 #include <utility>
 
-#define _DEBUG
+//#define _DEBUG
 
 struct KeyError {};
 
@@ -220,7 +220,6 @@ class RBTree {
                   rotateRight(cur->parent->parent);
                 }
               }
-              // TODO: what if that if is false?
             }
           } else if (cur->parent->parent && cur->parent == cur->parent->parent->right.get()) {
             Node_t* cousin = cur->parent->parent->left.get();
@@ -241,7 +240,6 @@ class RBTree {
                   rotateLeft(cur->parent->parent);
                 }
               }
-              // TODO: what if that if is false?
             }
           }
         }
@@ -273,12 +271,10 @@ class RBTree {
       std::unique_ptr<Node_t>& holder = getInRef(loc);
       std::unique_ptr<Node_t> removed_node = std::move(holder);
 
+      Node_t* removed_parent = loc->parent;
+
       if (!loc->left && !loc->right) {
-        if (!loc->parent) {
-          return;
-        }
-        cur = removed_node.get();
-        removed_node->parent = loc->parent;
+        cur = nullptr;
       } else if (loc->left && !loc->right) {
         cur = loc->left.get();
         loc->left->parent = loc->parent;
@@ -293,6 +289,7 @@ class RBTree {
         holder = std::move(removed_node);
         Node_t* succ = treeSuccessor(loc);
         cur = succ->right.get();
+        removed_parent = succ->parent;
         assert(!succ->left);
         std::swap(loc->key, succ->key);
         std::swap(loc->value, succ->value);
@@ -312,63 +309,69 @@ class RBTree {
 
       // If necessary, rebalance the tree.
       if (removed_node->color == COLOR::BLACK) {
-        while (cur != mTree.get() && cur->color == COLOR::BLACK) {
+        while (cur != mTree.get() && (!cur || cur->color == COLOR::BLACK)) {
           Node_t* sibling;
-          if (cur->parent->left.get() == cur) {
-            sibling = cur->parent->right.get();
+          if (removed_parent->left.get() == cur) {
+            sibling = removed_parent->right.get();
             if (sibling && sibling->color == COLOR::RED) {
               sibling->color = COLOR::BLACK;
-              cur->parent->color = COLOR::RED;
-              rotateLeft(cur->parent);
-              sibling = cur->parent->right.get();
+              removed_parent->color = COLOR::RED;
+              rotateLeft(removed_parent);
+              sibling = removed_parent->right.get();
             }
             if (sibling && 
                 (!sibling->left || sibling->left->color == COLOR::BLACK) &&
                 (!sibling->right || sibling->right->color == COLOR::BLACK)) {
               sibling->color = COLOR::RED;
-              cur = cur->parent;
+              cur = removed_parent;
+              removed_parent = cur->parent;
             } else {
-              if (sibling->right->color == COLOR::BLACK) {
+              if (!sibling->right || sibling->right->color == COLOR::BLACK) {
                 sibling->left->color = COLOR::BLACK;
                 sibling->color = COLOR::RED;
                 rotateRight(sibling);
-                sibling = cur->parent->right.get();
+                sibling = removed_parent->right.get();
               }
-              sibling->color = cur->parent->color;
-              cur->parent->color = COLOR::BLACK;
+              sibling->color = removed_parent->color;
+              removed_parent->color = COLOR::BLACK;
               sibling->right->color = COLOR::BLACK;
-              rotateLeft(cur->parent);
+              rotateLeft(removed_parent);
               cur = mTree.get();
+              removed_parent = cur->parent;
             }
           } else {
-            sibling = cur->parent->left.get();
+            sibling = removed_parent->left.get();
             if (sibling && sibling->color == COLOR::RED) {
               sibling->color = COLOR::BLACK;
-              cur->parent->color = COLOR::RED;
-              rotateRight(cur->parent);
-              sibling = cur->parent->left.get();
+              removed_parent->color = COLOR::RED;
+              rotateRight(removed_parent);
+              sibling = removed_parent->left.get();
             }
-            if (sibling &&
+            if (sibling && 
                 (!sibling->right || sibling->right->color == COLOR::BLACK) &&
                 (!sibling->left || sibling->left->color == COLOR::BLACK)) {
               sibling->color = COLOR::RED;
-              cur = cur->parent;
+              cur = removed_parent;
+              removed_parent = cur->parent;
             } else {
-              if (sibling->left->color == COLOR::BLACK) {
+              if (!sibling->left || sibling->left->color == COLOR::BLACK) {
                 sibling->right->color = COLOR::BLACK;
                 sibling->color = COLOR::RED;
-                rotateRight(sibling);
-                sibling = cur->parent->left.get();
+                rotateLeft(sibling);
+                sibling = removed_parent->left.get();
               }
-              sibling->color = cur->parent->color;
-              cur->parent->color = COLOR::BLACK;
+              sibling->color = removed_parent->color;
+              removed_parent->color = COLOR::BLACK;
               sibling->left->color = COLOR::BLACK;
-              rotateRight(cur->parent);
+              rotateRight(removed_parent);
               cur = mTree.get();
+              removed_parent = cur->parent;
             }
           }
         }
-        cur->color = COLOR::BLACK;
+        if (cur) {
+          cur->color = COLOR::BLACK;
+        }
       }
 
       #ifdef _DEBUG
@@ -378,12 +381,8 @@ class RBTree {
 
   private:
     Node_t* treeSuccessor(const Node_t* node_in) {
-      #ifdef _DEBUG
-        checkInvariant();
-      #endif
-
       assert(node_in);
-      Node_t* node = node->right.get();
+      Node_t* node = node_in->right.get();
       assert(node);
 
       while (node->left) {
