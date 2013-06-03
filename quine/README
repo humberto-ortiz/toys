@@ -1,3 +1,3 @@
-I wrote this quine for my induction into Eta Kappa Nu at the University of Michigan. All electees were asked to complete a sort of questionnarie with many questions both serious and joking. One of the questions was to write a quine in Java. I'm not a big fan of Java, so I wrote this quine, which won that year's "Eric Cantor Award for Refusing to Compromise".
+I wrote this quine for my induction into Eta Kappa Nu at the University of Michigan. All electees were asked to complete a sort of questionnaire with many questions both serious and joking. One of the questions was to write a quine in Java. I tend to prefer C++ and Python to Java, so I wrote this quine, which won that year's "Eric Cantor Award for Refusing to Compromise".
 
 Requires Jython.
