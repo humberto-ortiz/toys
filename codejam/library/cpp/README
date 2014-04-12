@@ -1,0 +1,25 @@
+Coding contest library (C++)
+Alex Roper
+alex@aroper.net
+
+Note: Relies on Boost (http://www.boost.org)
+
+All code available under the terms of the GPLv3, and in particular you are
+welcome to use this library in your own contest coding. See
+https://github.com/calmofthestorm/toys/codejam/library for the latest version
+or to submit issues/pull requests.
+
+-----------------------------------------------------------------------
+
+debug_output -- << overloads for common STL objects
+
+stream_input -- >> overloads for common Codejam input formats, and some other
+                convenient input operations.
+
+union_find   -- wrapper around Boost's disjoint_sets to provide a friendly
+                templated union-find container.
+
+hashes       -- std::hash specializations for common STL objects.
+
+codejam      -- Google Code Jam template -- provides effortless multithreading
+                infrastructure and simplifies parsing.
