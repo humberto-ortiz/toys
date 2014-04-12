@@ -10,6 +10,7 @@ https://github.com/calmofthestorm/toys/codejam/library for the latest version
 or to submit issues/pull requests.
 
 -----------------------------------------------------------------------
+C++
 
 debug_output -- << overloads for common STL objects
 
@@ -23,3 +24,4 @@ hashes       -- std::hash specializations for common STL objects.
 
 codejam      -- Google Code Jam template -- provides effortless multithreading
                 infrastructure and simplifies parsing.
+
