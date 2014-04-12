@@ -6,8 +6,8 @@ Note: Relies on Boost (http://www.boost.org)
 
 All code available under the terms of the GPLv3, and in particular you are
 welcome to use this library in your own contest coding. See
-https://github.com/calmofthestorm/toys/codejam/library for the latest version
-or to submit issues/pull requests.
+https://github.com/calmofthestorm/toys/tree/master/codejam/library for the
+latest version or to submit issues/pull requests.
 
 -----------------------------------------------------------------------
 C++

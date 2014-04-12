@@ -1,3 +1,14 @@
+// Coding contest library (C++)
+// Alex Roper
+// alex@aroper.net
+//
+// Note: Relies on Boost (http://www.boost.org)
+//
+// All code available under the terms of the GPLv3, and in particular you are
+// welcome to use this library in your own contest coding. See
+// https://github.com/calmofthestorm/toys/codejam/library for the latest version
+// or to submit issues/pull requests.
+//
 #ifndef OSTREAMS_7246b508c27543109c2794f3beac9787
 #define OSTREAMS_7246b508c27543109c2794f3beac9787
 
