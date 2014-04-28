@@ -24,7 +24,9 @@
 #ifndef UNIONFIND_0bb7b9ebeb3048f58090c09247502b31
 #define UNIONFIND_0bb7b9ebeb3048f58090c09247502b31
 
+#include <deque>
 #include <unordered_map>
+#include <vector>
 
 #include <boost/pending/disjoint_sets.hpp>
 #include <boost/iterator/counting_iterator.hpp>
@@ -35,7 +37,7 @@ template <typename T>
 class UnionFind {
   public:
     UnionFind();
-    UnionFind(std::initializer_list<typename std::vector<T>::value_type> l);
+    UnionFind(std::initializer_list<typename std::deque<T>::value_type> l);
     UnionFind(const UnionFind& other);
     UnionFind(UnionFind&& other);
     UnionFind& operator=(const UnionFind& other);
@@ -58,11 +60,11 @@ class UnionFind {
     size_t count_elements() const;
 
     // Get a reference to the elements in the union find (Handy for iteration).
-    inline const std::vector<T>& get_elements() const { return id_to_handle; }
+    inline const std::deque<T>& get_elements() const { return id_to_handle; }
 
   private:
     std::vector<size_t> rank, parent;
-    std::vector<T> id_to_handle;
+    std::deque<T> id_to_handle;
     std::unordered_map<T, size_t> handle_to_id;
     boost::disjoint_sets<size_t*, size_t*> uf;
 

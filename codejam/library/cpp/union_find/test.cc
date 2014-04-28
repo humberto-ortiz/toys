@@ -161,7 +161,7 @@ void test_element_access() {
   UnionFind<std::string> uf{hello, world, today, bees};
   auto elem = uf.get_elements();
   std::sort(elem.begin(), elem.end());
-  assert(elem == (std::vector<std::string>{bees, hello, today, world}));
+  assert(elem == (std::deque<std::string>{bees, hello, today, world}));
 }
 
 void test_scalar() {
@@ -184,7 +184,7 @@ void test_scalar() {
 
   auto elem = uf.get_elements();
   std::sort(elem.begin(), elem.end());
-  assert(elem == (std::vector<int>{-5, 27}));
+  assert(elem == (std::deque<int>{-5, 27}));
 }
 
 void copy_move_test_helper(UnionFind<int>& uf, UnionFind<int>& uf2) {
@@ -193,7 +193,7 @@ void copy_move_test_helper(UnionFind<int>& uf, UnionFind<int>& uf2) {
   std::sort(sorted1.begin(), sorted1.end());
   std::sort(sorted2.begin(), sorted2.end());
 
-  auto ans = std::vector<int>{-3, 5, 8, 9, 17, 275};
+  auto ans = std::deque<int>{-3, 5, 8, 9, 17, 275};
 
   assert(sorted1 == ans);
   assert(sorted2 == ans);
@@ -237,6 +237,26 @@ void test_realloc() {
   }
 }
 
+// Needs to run under Valgrind. Failure manifests as use-after-free.
+void test_references_returned_are_stable_across_resizes() {
+  UnionFind<int> uf;
+  const int& a = uf[0];
+  const int& b = uf[1];
+  const int& c = uf[2];
+  const int& d = uf[3];
+  const int& e = uf[4];
+  const int& f = uf[5];
+  const int& g = uf[6];
+  const int& h = uf[7];
+  uf.union_sets(a, b);
+  uf.union_sets(a, c);
+  uf.union_sets(a, d);
+  uf.union_sets(a, e);
+  uf.union_sets(a, f);
+  uf.union_sets(a, g);
+  uf.union_sets(a, h);
+}
+
 int main(int argc, char** argv) {
   test_basic();
   test_one_elem();
@@ -249,6 +269,7 @@ int main(int argc, char** argv) {
   test_copy();
   test_move();
   test_realloc();
+  test_references_returned_are_stable_across_resizes();
 
   return 0;
 }

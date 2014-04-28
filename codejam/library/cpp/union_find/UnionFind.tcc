@@ -1,3 +1,5 @@
+#include <algorithm>
+
 namespace calmofthestorm {
 
 template <typename T>
@@ -10,7 +12,7 @@ UnionFind<T>::UnionFind ()
 
 template <typename T>
 UnionFind<T>::UnionFind(
-    std::initializer_list<typename std::vector<T>::value_type> l
+    std::initializer_list<typename std::deque<T>::value_type> l
   )
 : rank(l.size()),
   parent(l.size()),
