@@ -13,11 +13,14 @@ CXX=g++
 RM=rm -f
 default: release
 
+nomt:
+	g++ *.cc -Ilibrary library/library_nomt.a -std=c++11 -pthread -O3 -o code -pedantic -Wall -Wextra
+
 release:
 	g++ *.cc -Ilibrary library/library.a -std=c++11 -pthread -O3 -o code -pedantic -Wall -Wextra
 
 debug:
-	g++ *.cc -Ilibrary library/library.a -std=c++11 -pthread -g -ggdb -o code -pedantic -Wall -Wextra
+	g++ *.cc -Ilibrary library/library_nomt.a -std=c++11 -pthread -g -ggdb -o code -pedantic -Wall -Wextra
 
 package:
 	rm -f submit.zip

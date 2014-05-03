@@ -21,4 +21,13 @@
 // C++ Codejam template for easy multithreading and such.
 #include "codejam/boilerplate.h"
 
+// For easy big types
+#include <boost/multiprecision/cpp_int.hpp>
+using boost::multiprecision::int128_t;
+using boost::multiprecision::int256_t;
+using boost::multiprecision::int512_t;
+using boost::multiprecision::uint128_t;
+using boost::multiprecision::uint256_t;
+using boost::multiprecision::uint512_t;
+
 #endif  /* CALMOFTHESTORM_c9075f68717b4580a6867db5ea017ebd */
