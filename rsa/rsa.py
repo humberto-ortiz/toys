@@ -267,6 +267,11 @@ class RSAPrivateKey(object):
     self.N = p * q
     self.public = RSAPublicKey(self.N, self.e)
 
+    # HOZ - Store secret stuff for working out examples.
+    self.p = p
+    self.q = q
+    self.phi = secret_modulus
+
   def GetPublicKey(self):
     """Returns the private key's corresponding public key."""
     return self.public
